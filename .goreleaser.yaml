@@ -1,0 +1,57 @@
+version: 2
+
+project_name: brief
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: brief
+    main: ./cmd/brief
+    binary: brief
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/zpenka/brief.Version={{.Version}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+brews:
+  - name: brief
+    repository:
+      owner: zpenka
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/zpenka/brief
+    description: Compact git snapshot for LLM session context
+    license: MIT
+    install: bin.install "brief"
+    test: system "#{bin}/brief", "--version"
