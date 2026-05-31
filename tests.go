@@ -8,12 +8,19 @@ import (
 	"time"
 )
 
+// FailureDetail holds the output messages for a single failing test.
+type FailureDetail struct {
+	Test     string   `json:"test"`
+	Messages []string `json:"messages"`
+}
+
 // TestResult holds the outcome of running go test.
 type TestResult struct {
-	Passed  bool          `json:"passed"`
-	Count   int           `json:"count"`
-	Elapsed time.Duration `json:"elapsed_ns"`
-	Failed  []string      `json:"failed,omitempty"`
+	Passed  bool            `json:"passed"`
+	Count   int             `json:"count"`
+	Elapsed time.Duration   `json:"elapsed_ns"`
+	Failed  []string        `json:"failed,omitempty"`
+	Details []FailureDetail `json:"details,omitempty"`
 }
 
 func runTests(dir string, timeout time.Duration) (*TestResult, error) {
@@ -35,6 +42,7 @@ type testEvent struct {
 	Action  string  `json:"Action"`
 	Test    string  `json:"Test"`
 	Elapsed float64 `json:"Elapsed"`
+	Output  string  `json:"Output"`
 }
 
 func parseTestEvents(output string) *TestResult {
@@ -42,6 +50,8 @@ func parseTestEvents(output string) *TestResult {
 		r       TestResult
 		elapsed float64
 		hasData bool
+		// accumulate output lines per test name
+		testOutput = map[string][]string{}
 	)
 	r.Passed = true
 
@@ -55,15 +65,24 @@ func parseTestEvents(output string) *TestResult {
 		}
 		hasData = true
 		switch ev.Action {
+		case "output":
+			if ev.Test != "" && ev.Output != "" {
+				testOutput[ev.Test] = append(testOutput[ev.Test], ev.Output)
+			}
 		case "pass":
 			if ev.Test != "" {
 				r.Count++
+				delete(testOutput, ev.Test)
 			} else {
 				elapsed += ev.Elapsed
 			}
 		case "fail":
 			if ev.Test != "" {
 				r.Failed = append(r.Failed, ev.Test)
+				if msgs := testOutput[ev.Test]; len(msgs) > 0 {
+					r.Details = append(r.Details, FailureDetail{Test: ev.Test, Messages: msgs})
+				}
+				delete(testOutput, ev.Test)
 			} else {
 				r.Passed = false
 				elapsed += ev.Elapsed

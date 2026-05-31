@@ -20,13 +20,14 @@ type Config struct {
 
 // Brief is the collected snapshot of a repository's current state.
 type Brief struct {
-	Dir     string       `json:"dir"`
-	Branch  string       `json:"branch"`
-	Commits []Commit     `json:"commits"`
-	Status  []StatusLine `json:"status"`
-	TODOs   []TODOItem   `json:"todos"`
-	Tests   *TestResult  `json:"tests,omitempty"`
-	At      time.Time    `json:"at"`
+	Dir         string       `json:"dir"`
+	Branch      string       `json:"branch"`
+	Commits     []Commit     `json:"commits"`
+	Status      []StatusLine `json:"status"`
+	TODOs       []TODOItem   `json:"todos"`
+	StagedTODOs []TODOItem   `json:"staged_todos,omitempty"`
+	Tests       *TestResult  `json:"tests,omitempty"`
+	At          time.Time    `json:"at"`
 }
 
 // Run parses args and runs the tool, writing output to stdout.
@@ -91,6 +92,10 @@ func Collect(cfg Config) (*Brief, error) {
 		b.TODOs = todosInDiff(diff)
 	}
 
+	if staged, err := stagedDiffOutput(absDir); err == nil {
+		b.StagedTODOs = todosInDiff(staged)
+	}
+
 	if cfg.RunTests {
 		b.Tests, _ = runTests(absDir, 60*time.Second)
 	}
@@ -126,14 +131,28 @@ func printText(w io.Writer, b *Brief) error {
 		}
 	}
 
+	if len(b.StagedTODOs) > 0 {
+		fmt.Fprintf(w, "\n## todos in staged changes\n")
+		for _, td := range b.StagedTODOs {
+			fmt.Fprintf(w, "- `%s:%d` **%s**: %s\n", td.File, td.Line, td.Kind, td.Text)
+		}
+	}
+
 	if b.Tests != nil {
 		fmt.Fprintf(w, "\n## tests\n")
 		if b.Tests.Passed {
 			fmt.Fprintf(w, "✓ %d passed (%s)\n", b.Tests.Count, b.Tests.Elapsed.Round(time.Millisecond))
 		} else {
 			fmt.Fprintf(w, "✗ failed\n")
+			detailsByTest := make(map[string][]string, len(b.Tests.Details))
+			for _, d := range b.Tests.Details {
+				detailsByTest[d.Test] = d.Messages
+			}
 			for _, f := range b.Tests.Failed {
 				fmt.Fprintf(w, "- %s\n", f)
+				for _, msg := range detailsByTest[f] {
+					fmt.Fprintf(w, "  %s", msg)
+				}
 			}
 		}
 	}

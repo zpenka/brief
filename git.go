@@ -79,6 +79,10 @@ func diffOutput(dir string) (string, error) {
 	return gitCmd(dir, "diff", "HEAD")
 }
 
+func stagedDiffOutput(dir string) (string, error) {
+	return gitCmd(dir, "diff", "--cached")
+}
+
 func gitCmd(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

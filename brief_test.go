@@ -64,6 +64,54 @@ func TestCollect_TODOsInDiff(t *testing.T) {
 	}
 }
 
+func TestCollect_StagedTODOs(t *testing.T) {
+	dir := tempGitRepo(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n// TODO: staged work\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "add", "main.go")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+
+	b, err := Collect(Config{Dir: dir, NumCommits: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.StagedTODOs) == 0 {
+		t.Error("expected StagedTODOs from staged diff")
+	}
+	if b.StagedTODOs[0].Kind != "TODO" {
+		t.Errorf("Kind = %q, want TODO", b.StagedTODOs[0].Kind)
+	}
+	if b.StagedTODOs[0].Text != "staged work" {
+		t.Errorf("Text = %q, want %q", b.StagedTODOs[0].Text, "staged work")
+	}
+}
+
+func TestCollect_UnstagedTODOs_NotInStaged(t *testing.T) {
+	dir := tempGitRepo(t)
+
+	// Write TODO but do NOT stage it
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n// TODO: unstaged work\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := Collect(Config{Dir: dir, NumCommits: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.StagedTODOs) != 0 {
+		t.Errorf("expected no StagedTODOs for unstaged change, got %v", b.StagedTODOs)
+	}
+	// TODOs in unstaged diff (via git diff HEAD) should still appear
+	if len(b.TODOs) == 0 {
+		t.Error("expected TODOs from unstaged diff")
+	}
+}
+
 func TestCollect_MultipleCommits(t *testing.T) {
 	dir := tempGitRepo(t)
 
@@ -135,6 +183,28 @@ func TestPrintText_TODOsAndTests(t *testing.T) {
 	}
 }
 
+func TestPrintText_StagedTODOs(t *testing.T) {
+	b := &Brief{
+		Dir:    "/repo",
+		Branch: "main",
+		StagedTODOs: []TODOItem{
+			{File: "api.go", Line: 7, Kind: "TODO", Text: "wire up handler"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := printText(&buf, b); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{"todos in staged changes", "api.go:7", "TODO", "wire up handler"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestPrintText_FailedTests(t *testing.T) {
 	b := &Brief{
 		Dir:    "/repo",
@@ -152,6 +222,32 @@ func TestPrintText_FailedTests(t *testing.T) {
 	out := buf.String()
 
 	for _, want := range []string{"failed", "TestFoo", "TestBar"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintText_FailedTestsWithDetails(t *testing.T) {
+	b := &Brief{
+		Dir:    "/repo",
+		Branch: "main",
+		Tests: &TestResult{
+			Passed: false,
+			Failed: []string{"TestFoo"},
+			Details: []FailureDetail{
+				{Test: "TestFoo", Messages: []string{"    foo_test.go:42: assertion failed\n"}},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := printText(&buf, b); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{"TestFoo", "foo_test.go:42", "assertion failed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}

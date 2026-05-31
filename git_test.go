@@ -180,6 +180,55 @@ func TestRecentCommits(t *testing.T) {
 	}
 }
 
+func TestStagedDiffOutput_Empty(t *testing.T) {
+	dir := tempGitRepo(t)
+	out, err := stagedDiffOutput(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "" {
+		t.Errorf("expected empty staged diff, got %q", out)
+	}
+}
+
+func TestStagedDiffOutput_ShowsStagedContent(t *testing.T) {
+	dir := tempGitRepo(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n// staged change\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "add", "main.go")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+
+	diff, err := stagedDiffOutput(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "staged change") {
+		t.Errorf("staged diff missing expected content, got %q", diff)
+	}
+}
+
+func TestStagedDiffOutput_ExcludesUnstaged(t *testing.T) {
+	dir := tempGitRepo(t)
+
+	// Write file but do NOT stage it
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n// unstaged only\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	diff, err := stagedDiffOutput(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(diff, "unstaged only") {
+		t.Errorf("staged diff should not contain unstaged content, got %q", diff)
+	}
+}
+
 func TestWorkingStatus(t *testing.T) {
 	dir := tempGitRepo(t)
 
