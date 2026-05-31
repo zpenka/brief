@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// Version is the current release version.
+const Version = "0.1.0"
+
 // Config holds the options passed to Run.
 type Config struct {
 	Dir        string
@@ -37,9 +40,15 @@ func Run(args []string) error {
 	n := fs.Int("commits", 5, "number of recent commits to show")
 	tests := fs.Bool("tests", false, "run tests and include result (slow)")
 	jsonOut := fs.Bool("json", false, "output JSON instead of text")
+	version := fs.Bool("version", false, "print version and exit")
 
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	if *version {
+		fmt.Fprintf(os.Stdout, "brief %s\n", Version)
+		return nil
 	}
 
 	cfg := Config{
