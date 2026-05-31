@@ -2,6 +2,7 @@ package brief
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -104,6 +105,86 @@ func TestPrintText_ContainsSections(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestPrintText_TODOsAndTests(t *testing.T) {
+	b := &Brief{
+		Dir:    "/repo",
+		Branch: "main",
+		TODOs: []TODOItem{
+			{File: "auth.go", Line: 42, Kind: "FIXME", Text: "handle race"},
+		},
+		Tests: &TestResult{
+			Passed:  true,
+			Count:   12,
+			Elapsed: 1200 * 1000000, // 1.2s in nanoseconds
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := printText(&buf, b); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{"todos in recent changes", "auth.go:42", "FIXME", "12 passed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintText_FailedTests(t *testing.T) {
+	b := &Brief{
+		Dir:    "/repo",
+		Branch: "main",
+		Tests: &TestResult{
+			Passed: false,
+			Failed: []string{"TestFoo", "TestBar"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := printText(&buf, b); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{"failed", "TestFoo", "TestBar"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintJSON(t *testing.T) {
+	dir := tempGitRepo(t)
+	b, err := Collect(Config{Dir: dir, NumCommits: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := printJSON(&buf, b); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\noutput: %s", err, buf.String())
+	}
+	for _, key := range []string{"dir", "branch", "commits", "status", "at"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("JSON missing key %q", key)
+		}
+	}
+}
+
+func TestRun_JSON(t *testing.T) {
+	dir := tempGitRepo(t)
+	if err := Run([]string{"--dir", dir, "--json"}); err != nil {
+		t.Fatalf("Run with --json: %v", err)
 	}
 }
 

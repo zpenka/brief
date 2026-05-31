@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -144,6 +145,24 @@ func TestCurrentBranch(t *testing.T) {
 	}
 	if branch == "" {
 		t.Error("expected non-empty branch")
+	}
+}
+
+func TestCurrentBranch_DetachedHEAD(t *testing.T) {
+	dir := tempGitRepo(t)
+
+	cmd := exec.Command("git", "checkout", "--detach")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout --detach: %v\n%s", err, out)
+	}
+
+	branch, err := currentBranch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(branch, "HEAD@") {
+		t.Errorf("branch = %q, want HEAD@<hash>", branch)
 	}
 }
 

@@ -16,4 +16,26 @@ jobs:
           go-version: "1.22"
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)"
-      - run: go test -race -cover ./...
+      - run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Coverage gate (>=80%, excluding cmd/brief)
+        run: |
+          awk '
+            NR == 1 { next }
+            {
+              split($1, a, ":"); file = a[1]
+              pkg = file; sub(/\/[^\/]+$/, "", pkg)
+              if (pkg == "github.com/zpenka/brief/cmd/brief") next
+              total[pkg] += $2
+              if ($3 > 0) hit[pkg] += $2
+            }
+            END {
+              threshold = 80.0; failed = 0
+              for (pkg in total) {
+                cov = (total[pkg] > 0) ? (100.0 * hit[pkg] / total[pkg]) : 0
+                status = (cov >= threshold) ? "PASS" : "FAIL"
+                printf "%s: %s = %.1f%%\n", status, pkg, cov
+                if (cov < threshold) failed = 1
+              }
+              exit failed
+            }
+          ' coverage.out
