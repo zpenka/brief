@@ -19,18 +19,27 @@ type Config struct {
 	NumCommits int
 	RunTests   bool
 	JSON       bool
+	Base       string // base branch for comparison (e.g. "main")
+	ShowTree   bool   // include repo file tree
+	TreeDepth  int    // max depth for tree (0 = default 3)
+	MaxTokens  int    // token budget for output (0 = unlimited)
 }
 
 // Brief is the collected snapshot of a repository's current state.
 type Brief struct {
-	Dir         string       `json:"dir"`
-	Branch      string       `json:"branch"`
-	Commits     []Commit     `json:"commits"`
-	Status      []StatusLine `json:"status"`
-	TODOs       []TODOItem   `json:"todos"`
-	StagedTODOs []TODOItem   `json:"staged_todos,omitempty"`
-	Tests       *TestResult  `json:"tests,omitempty"`
-	At          time.Time    `json:"at"`
+	Dir           string       `json:"dir"`
+	Branch        string       `json:"branch"`
+	Commits       []Commit     `json:"commits"`
+	Status        []StatusLine `json:"status"`
+	TODOs         []TODOItem   `json:"todos"`
+	StagedTODOs   []TODOItem   `json:"staged_todos,omitempty"`
+	Tests         *TestResult  `json:"tests,omitempty"`
+	At            time.Time    `json:"at"`
+	BaseBranch    string       `json:"base_branch,omitempty"`
+	BranchCommits []Commit     `json:"branch_commits,omitempty"`
+	BranchDiff    string       `json:"branch_diff,omitempty"`
+	BranchTODOs   []TODOItem   `json:"branch_todos,omitempty"`
+	Tree          []string     `json:"tree,omitempty"`
 }
 
 // Run parses args and runs the tool, writing output to stdout.
@@ -41,6 +50,10 @@ func Run(args []string) error {
 	tests := fs.Bool("tests", false, "run tests and include result (slow)")
 	jsonOut := fs.Bool("json", false, "output JSON instead of text")
 	version := fs.Bool("version", false, "print version and exit")
+	base := fs.String("base", "", "base branch to compare against (e.g. main)")
+	tree := fs.Bool("tree", false, "include repo file tree")
+	treeDepth := fs.Int("depth", 3, "max depth for file tree (requires --tree)")
+	maxTokens := fs.Int("tokens", 0, "token budget for output (0 = unlimited)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -56,6 +69,10 @@ func Run(args []string) error {
 		NumCommits: *n,
 		RunTests:   *tests,
 		JSON:       *jsonOut,
+		Base:       *base,
+		ShowTree:   *tree,
+		TreeDepth:  *treeDepth,
+		MaxTokens:  *maxTokens,
 	}
 
 	b, err := Collect(cfg)
@@ -105,6 +122,31 @@ func Collect(cfg Config) (*Brief, error) {
 		b.StagedTODOs = todosInDiff(staged)
 	}
 
+	if cfg.Base != "" {
+		b.BaseBranch = cfg.Base
+		if commits, err := commitsAhead(absDir, cfg.Base); err == nil {
+			b.BranchCommits = commits
+		}
+		if diff, err := baseDiff(absDir, cfg.Base); err == nil {
+			b.BranchDiff = diff
+			b.BranchTODOs = todosInDiff(diff)
+		}
+	}
+
+	if cfg.ShowTree {
+		depth := cfg.TreeDepth
+		if depth <= 0 {
+			depth = 3
+		}
+		if files, err := repoFiles(absDir); err == nil {
+			b.Tree = buildTree(files, depth)
+		}
+	}
+
+	if cfg.MaxTokens > 0 {
+		applyBudget(b, cfg.MaxTokens)
+	}
+
 	if cfg.RunTests {
 		b.Tests, _ = runTests(absDir, 60*time.Second)
 	}
@@ -144,6 +186,35 @@ func printText(w io.Writer, b *Brief) error {
 		fmt.Fprintf(w, "\n## todos in staged changes\n")
 		for _, td := range b.StagedTODOs {
 			fmt.Fprintf(w, "- `%s:%d` **%s**: %s\n", td.File, td.Line, td.Kind, td.Text)
+		}
+	}
+
+	if b.BaseBranch != "" {
+		fmt.Fprintf(w, "\n## branch commits vs %s\n", b.BaseBranch)
+		if len(b.BranchCommits) == 0 {
+			fmt.Fprintf(w, "none\n")
+		}
+		for _, c := range b.BranchCommits {
+			fmt.Fprintf(w, "- `%s` %s\n", c.Hash, c.Subject)
+		}
+
+		if b.BranchDiff != "" {
+			fmt.Fprintf(w, "\n## diff vs %s\n", b.BaseBranch)
+			fmt.Fprintf(w, "```diff\n%s\n```\n", b.BranchDiff)
+		}
+
+		if len(b.BranchTODOs) > 0 {
+			fmt.Fprintf(w, "\n## todos in branch\n")
+			for _, td := range b.BranchTODOs {
+				fmt.Fprintf(w, "- `%s:%d` **%s**: %s\n", td.File, td.Line, td.Kind, td.Text)
+			}
+		}
+	}
+
+	if len(b.Tree) > 0 {
+		fmt.Fprintf(w, "\n## repo tree\n")
+		for _, line := range b.Tree {
+			fmt.Fprintf(w, "%s\n", line)
 		}
 	}
 

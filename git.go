@@ -83,6 +83,20 @@ func stagedDiffOutput(dir string) (string, error) {
 	return gitCmd(dir, "diff", "--cached")
 }
 
+// commitsAhead returns commits reachable from HEAD but not from base.
+func commitsAhead(dir, base string) ([]Commit, error) {
+	out, err := gitCmd(dir, "log", base+"..HEAD", "--oneline", "--no-decorate")
+	if err != nil {
+		return nil, err
+	}
+	return parseCommits(out), nil
+}
+
+// baseDiff returns the diff of all changes introduced since branching from base.
+func baseDiff(dir, base string) (string, error) {
+	return gitCmd(dir, "diff", base+"...HEAD")
+}
+
 func gitCmd(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
