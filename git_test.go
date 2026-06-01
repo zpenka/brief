@@ -1,6 +1,7 @@
 package brief
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,6 +106,16 @@ func TestStatusLineLabel(t *testing.T) {
 	}
 }
 
+// mustGit runs a git command in dir and fatals on error.
+func mustGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
 // tempGitRepo creates an initialized git repo with one commit in a temp dir.
 func tempGitRepo(t *testing.T) string {
 	t.Helper()
@@ -113,6 +124,7 @@ func tempGitRepo(t *testing.T) string {
 		{"init"},
 		{"config", "user.email", "test@test.com"},
 		{"config", "user.name", "Test"},
+		{"config", "commit.gpgsign", "false"},
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
@@ -226,6 +238,89 @@ func TestStagedDiffOutput_ExcludesUnstaged(t *testing.T) {
 	}
 	if strings.Contains(diff, "unstaged only") {
 		t.Errorf("staged diff should not contain unstaged content, got %q", diff)
+	}
+}
+
+func TestCommitsAhead_Empty(t *testing.T) {
+	dir := tempGitRepo(t)
+	branch, err := currentBranch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := commitsAhead(dir, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 0 {
+		t.Errorf("expected 0 commits ahead of self, got %d", len(commits))
+	}
+}
+
+func TestCommitsAhead(t *testing.T) {
+	dir := tempGitRepo(t)
+	base, err := currentBranch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mustGit(t, dir, "checkout", "-b", "feature")
+
+	for i := 0; i < 2; i++ {
+		content := []byte(fmt.Sprintf("package main\n// v%d\n", i))
+		if err := os.WriteFile(filepath.Join(dir, "feature.go"), content, 0644); err != nil {
+			t.Fatal(err)
+		}
+		mustGit(t, dir, "add", ".")
+		mustGit(t, dir, "commit", "-m", fmt.Sprintf("feature commit %d", i))
+	}
+
+	commits, err := commitsAhead(dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 {
+		t.Errorf("len(commits) = %d, want 2", len(commits))
+	}
+	if !strings.Contains(commits[0].Subject, "feature commit") {
+		t.Errorf("Subject = %q", commits[0].Subject)
+	}
+}
+
+func TestBaseDiff_Empty(t *testing.T) {
+	dir := tempGitRepo(t)
+	branch, err := currentBranch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff, err := baseDiff(dir, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff != "" {
+		t.Errorf("expected empty diff vs self, got %q", diff)
+	}
+}
+
+func TestBaseDiff_ShowsChanges(t *testing.T) {
+	dir := tempGitRepo(t)
+	base, err := currentBranch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mustGit(t, dir, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n// feature content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, dir, "add", "new.go")
+	mustGit(t, dir, "commit", "-m", "add new.go")
+
+	diff, err := baseDiff(dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "feature content") {
+		t.Errorf("diff should contain added content, got %q", diff)
 	}
 }
 
