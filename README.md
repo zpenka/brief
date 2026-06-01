@@ -1,6 +1,6 @@
 # brief
 
-**brief** generates a compact, markdown-formatted snapshot of your git repository's current state — branch, recent commits, working tree status, and TODO markers in your diff — in one shot.
+**brief** generates a compact, markdown-formatted snapshot of your git repository's current state — branch, recent commits, working tree status, TODO markers in your diff, base-branch comparison, and repo file tree — in one shot.
 
 Designed to be handed to Claude (or any LLM) as session context, replacing the 4–6 tool calls it would otherwise make at the start of a session.
 
@@ -19,7 +19,7 @@ go install github.com/zpenka/brief/cmd/brief@latest
 ## Usage
 
 ```
-brief [--dir <path>] [--commits <n>] [--tests] [--json]
+brief [--dir <path>] [--commits <n>] [--base <branch>] [--tree] [--tokens <n>] [--tests] [--json]
 ```
 
 ```bash
@@ -28,6 +28,15 @@ brief
 
 # Snapshot a different repo
 brief --dir ~/code/myproject
+
+# Compare against a base branch (commits ahead + full diff)
+brief --base main
+
+# Include the repo file tree
+brief --tree
+
+# Cap output at ~4 000 tokens (safe for most context windows)
+brief --tokens 4000
 
 # Include test results
 brief --tests
@@ -67,6 +76,10 @@ brief --json
 |---|---|---|
 | `--dir` | `.` | Git repository directory |
 | `--commits` | `5` | Number of recent commits |
+| `--base` | — | Base branch to compare against (e.g. `main`). Shows commits ahead and full diff. |
+| `--tree` | off | Include a condensed repo file tree |
+| `--depth` | `3` | Max directory depth for `--tree` |
+| `--tokens` | `0` | Token budget for output (`0` = unlimited). Truncates diff first, then trims commits. |
 | `--tests` | off | Run `go test -race ./...` and include result |
 | `--json` | off | Output JSON instead of markdown |
 
